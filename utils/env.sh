@@ -4,7 +4,7 @@
 
 export SCRATCH="/storage/ice1/4/5/ealbalas3"
 export MODEL="$SCRATCH/disaggregated-prefill-decode-research/model"
-export OUTDIR="$SCRATCH/disaggregated-prefill-decode-research/results"
+export OUTDIR="$SCRATCH/disaggregated-prefill-decode-research/results/stats"
 export VLLM_PROXY_SRC="$SCRATCH/disaggregated-prefill-decode-research/proxy"
 
 export UCX_NET_DEVICES=all
