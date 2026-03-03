@@ -1,5 +1,5 @@
 # Model weights
-model/
+model/*
 # Python
 __pycache__/
 *.pyc
