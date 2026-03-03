@@ -87,6 +87,7 @@ vllm bench serve \
   --burstiness "$BURSTINESS" \
   --percentile-metrics "ttft,tpot,itl,e2el" \
   --metric-percentiles "50,90,95,99" \
+  --save-result \
   --save-detailed \
   --goodput "ttft:$SLO_TTFT" "tpot:$SLO_TPOT" "e2el:$SLO_E2EL" \
   --result-dir "$OUTDIR" \
