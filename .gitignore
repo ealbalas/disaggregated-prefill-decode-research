@@ -1,0 +1,7 @@
+# Model weights
+model/
+# Python
+__pycache__/
+*.pyc
+# OS
+.DS_Store
