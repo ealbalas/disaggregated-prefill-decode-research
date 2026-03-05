@@ -38,7 +38,7 @@ METRICS = {
     "request_throughput": "Throughput (req/s)",
 }
 
-RATIOS = ["1p1d", "1p2d", "1p3d", "2p1d", "3p1d"]
+RATIOS = ["colocated", "1p1d", "1p2d", "1p3d", "2p1d", "3p1d"]
 
 # ── Load results ──────────────────────────────────────────────────────────────
 def load_results():
@@ -52,8 +52,9 @@ def load_results():
             continue
 
         # Parse tag: {ratio}_{input}x{output}_rate{rate}_conc{concurrency}
+        # ratio is either NpMd (e.g. 1p1d) or "colocated"
         tag = data.get("metadata", {}).get("tag", f.stem)
-        m = re.match(r"(\d+p\d+d)_(\d+)x(\d+)_rate([\d.]+)_conc(\d+)", tag)
+        m = re.match(r"(colocated|\d+p\d+d)_(\d+)x(\d+)_rate([\d.]+)_conc(\d+)", tag)
         if not m:
             print(f"Skipping unrecognised tag: {tag}")
             continue

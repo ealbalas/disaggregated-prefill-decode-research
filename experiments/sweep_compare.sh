@@ -36,7 +36,7 @@ stop_servers() {
   if [[ ${#PIDS[@]} -gt 0 ]]; then
     echo "Stopping servers (PIDs: ${PIDS[*]})..."
     for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
-    sleep 3
+    wait "${PIDS[@]}" 2>/dev/null || true
     PIDS=()
   fi
 }
