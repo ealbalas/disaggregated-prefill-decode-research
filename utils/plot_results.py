@@ -39,6 +39,8 @@ METRICS = {
 }
 
 RATIOS = ["colocated", "1p1d", "1p2d", "1p3d", "2p1d", "3p1d"]
+COMPARE_RATIOS = ["colocated", "1p1d", "2p1d", "3p1d"]
+COMPARE_COLORS = {r: cm.tab10(i / (len(COMPARE_RATIOS) - 1)) for i, r in enumerate(COMPARE_RATIOS)}
 
 # ── Load results ──────────────────────────────────────────────────────────────
 def load_results():
@@ -66,6 +68,7 @@ def load_results():
             "output_len":  int(m.group(3)),
             "rate":        float(m.group(4)),
             "concurrency": int(m.group(5)),
+            "goodput":     data.get("goodput"),
             **{k: data.get(k) for k in METRICS},
         })
 
@@ -205,6 +208,200 @@ def ratio_comparison_bar(records):
         plt.close()
         print(f"  Saved: {out.name}")
 
+# ── Colocated vs Disaggregated comparison plots ───────────────────────────────
+
+def _compare_subplots(records, x_key, x_label, metric_key, metric_label, filename):
+    """One subplot per request rate, one line per COMPARE_RATIOS ratio."""
+    rates = sorted({r["rate"] for r in records if r["ratio"] in COMPARE_RATIOS})
+    if not rates:
+        return
+
+    fig, axes = plt.subplots(1, len(rates), figsize=(6 * len(rates), 5), sharey=True)
+    if len(rates) == 1:
+        axes = [axes]
+
+    for ax, rate in zip(axes, rates):
+        for ratio in COMPARE_RATIOS:
+            pts = sorted(
+                (r[x_key], r[metric_key])
+                for r in records
+                if r["ratio"] == ratio and r["rate"] == rate
+                and r.get(metric_key) is not None
+            )
+            if not pts:
+                continue
+            xs, ys = zip(*pts)
+            ax.plot(xs, ys, marker="o", label=ratio, color=COMPARE_COLORS[ratio])
+
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(metric_label)
+        ax.set_title(f"rate={rate} req/s")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+    fig.suptitle(f"{metric_label} vs {x_label}\nColocated vs Disaggregated", y=1.02)
+    plt.tight_layout()
+    out = PLOTS_DIR / filename
+    plt.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"  Saved: {out.name}")
+
+
+def compare_latency_vs_input_len(records):
+    """TTFT, E2EL, and TPOT vs input length, one subplot per rate."""
+    _compare_subplots(records, "input_len", "Input Length (tokens)",
+                      "mean_ttft_ms", "Mean TTFT (ms)",
+                      "compare_ttft_vs_input_len.png")
+    _compare_subplots(records, "input_len", "Input Length (tokens)",
+                      "mean_e2el_ms", "Mean E2E Latency (ms)",
+                      "compare_e2el_vs_input_len.png")
+    _compare_subplots(records, "input_len", "Input Length (tokens)",
+                      "mean_tpot_ms", "Mean TPOT (ms)",
+                      "compare_tpot_vs_input_len.png")
+
+
+def compare_throughput_vs_input_len(records):
+    """Throughput vs input length, one subplot per rate."""
+    _compare_subplots(records, "input_len", "Input Length (tokens)",
+                      "request_throughput", "Throughput (req/s)",
+                      "compare_throughput_vs_input_len.png")
+
+
+def compare_ttft_speedup_vs_input_len(records):
+    """Normalized TTFT speedup (colocated / disagg) vs input length.
+    Values > 1 mean disaggregation is faster on TTFT."""
+    rates = sorted({r["rate"] for r in records if r["ratio"] in COMPARE_RATIOS})
+    if not rates:
+        return
+
+    # Build colocated lookup: (input_len, rate) -> mean_ttft_ms
+    coloc = {
+        (r["input_len"], r["rate"]): r["mean_ttft_ms"]
+        for r in records
+        if r["ratio"] == "colocated" and r.get("mean_ttft_ms") is not None
+    }
+    if not coloc:
+        return
+
+    disagg_ratios = [r for r in COMPARE_RATIOS if r != "colocated"]
+    fig, axes = plt.subplots(1, len(rates), figsize=(6 * len(rates), 5), sharey=True)
+    if len(rates) == 1:
+        axes = [axes]
+
+    for ax, rate in zip(axes, rates):
+        ax.axhline(1.0, color="gray", linestyle="--", linewidth=1, label="break-even")
+        for ratio in disagg_ratios:
+            pts = sorted(
+                (r["input_len"], coloc[(r["input_len"], rate)] / r["mean_ttft_ms"])
+                for r in records
+                if r["ratio"] == ratio and r["rate"] == rate
+                and r.get("mean_ttft_ms") is not None
+                and (r["input_len"], rate) in coloc
+            )
+            if not pts:
+                continue
+            xs, ys = zip(*pts)
+            ax.plot(xs, ys, marker="o", label=ratio, color=COMPARE_COLORS[ratio])
+
+        ax.set_xlabel("Input Length (tokens)")
+        ax.set_ylabel("TTFT Speedup (colocated / disagg)")
+        ax.set_title(f"rate={rate} req/s")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+    fig.suptitle("TTFT Speedup of Disaggregated vs Colocated\n(>1 = disaggregation wins)", y=1.02)
+    plt.tight_layout()
+    out = PLOTS_DIR / "compare_ttft_speedup_vs_input_len.png"
+    plt.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"  Saved: {out.name}")
+
+
+def compare_tpot_overhead_by_ratio(records):
+    """Bar chart of TPOT per ratio at median input length, per rate.
+    Reveals whether KV transfer adds decode overhead."""
+    ins = sorted({r["input_len"] for r in records if r["ratio"] in COMPARE_RATIOS})
+    if not ins:
+        return
+    mid_in = ins[len(ins) // 2]
+
+    rates = sorted({r["rate"] for r in records if r["ratio"] in COMPARE_RATIOS})
+    fig, axes = plt.subplots(1, len(rates), figsize=(5 * len(rates), 5), sharey=True)
+    if len(rates) == 1:
+        axes = [axes]
+
+    for ax, rate in zip(axes, rates):
+        ratio_vals = {
+            r["ratio"]: r["mean_tpot_ms"]
+            for r in records
+            if r["ratio"] in COMPARE_RATIOS and r["rate"] == rate
+            and r["input_len"] == mid_in and r.get("mean_tpot_ms") is not None
+        }
+        if not ratio_vals:
+            continue
+        ratios = [r for r in COMPARE_RATIOS if r in ratio_vals]
+        vals = [ratio_vals[r] for r in ratios]
+        colors = [COMPARE_COLORS[r] for r in ratios]
+        bars = ax.bar(ratios, vals, color=colors)
+        ax.bar_label(bars, fmt="%.1f", padding=3)
+        ax.set_xlabel("P:D Ratio")
+        ax.set_ylabel("Mean TPOT (ms)")
+        ax.set_title(f"rate={rate} req/s")
+        ax.grid(True, axis="y", alpha=0.3)
+
+    fig.suptitle(f"TPOT by Ratio (input={mid_in} tokens)\nDecode overhead from KV transfer", y=1.02)
+    plt.tight_layout()
+    out = PLOTS_DIR / "compare_tpot_overhead_by_ratio.png"
+    plt.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"  Saved: {out.name}")
+
+
+def compare_throughput_vs_rate(records):
+    """Throughput vs request rate, one line per ratio, fixed to median input length."""
+    ins = sorted({r["input_len"] for r in records if r["ratio"] in COMPARE_RATIOS})
+    if not ins:
+        return
+    mid_in = ins[len(ins) // 2]
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    for ratio in COMPARE_RATIOS:
+        pts = sorted(
+            (r["rate"], r["request_throughput"])
+            for r in records
+            if r["ratio"] == ratio and r["input_len"] == mid_in
+            and r.get("request_throughput") is not None
+        )
+        if not pts:
+            continue
+        xs, ys = zip(*pts)
+        ax.plot(xs, ys, marker="o", label=ratio, color=COMPARE_COLORS[ratio])
+
+    ax.set_xlabel("Request Rate (req/s)")
+    ax.set_ylabel("Throughput (req/s)")
+    ax.set_title(f"Throughput vs Request Rate (input={mid_in} tokens)\nColocated vs Disaggregated")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    out = PLOTS_DIR / "compare_throughput_vs_rate.png"
+    plt.savefig(out, dpi=150)
+    plt.close()
+    print(f"  Saved: {out.name}")
+
+
+def compare_goodput_vs_input_len(records):
+    """Goodput vs input length, one subplot per rate.
+    Goodput = requests/s that meet all SLOs (TTFT, TPOT, E2EL)."""
+    has_goodput = [r for r in records if r["ratio"] in COMPARE_RATIOS and r.get("goodput") is not None]
+    if not has_goodput:
+        print("  Skipping goodput plot: no goodput data found in results.")
+        return
+
+    _compare_subplots(has_goodput, "input_len", "Input Length (tokens)",
+                      "goodput", "Goodput (req/s meeting SLOs)",
+                      "compare_goodput_vs_input_len.png")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     try:
@@ -225,5 +422,13 @@ if __name__ == "__main__":
     plots_vs_output_len(records)
     plots_vs_concurrency(records)
     ratio_comparison_bar(records)
+
+    print("\nGenerating colocated vs disaggregated comparison plots...")
+    compare_latency_vs_input_len(records)
+    compare_throughput_vs_input_len(records)
+    compare_ttft_speedup_vs_input_len(records)
+    compare_tpot_overhead_by_ratio(records)
+    compare_throughput_vs_rate(records)
+    compare_goodput_vs_input_len(records)
 
     print(f"\nAll plots saved to {PLOTS_DIR}")
