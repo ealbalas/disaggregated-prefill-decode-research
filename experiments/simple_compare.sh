@@ -70,6 +70,7 @@ run_benchmark() {
 cleanup() { stop_servers; }
 trap cleanup EXIT
 
+OUTDIR="$OUTDIR/simple"
 mkdir -p "$OUTDIR"
 
 TOTAL_COMBOS=$(( ${#INPUT_LENS[@]} * ${#OUTPUT_LENS[@]} * ${#REQUEST_RATES[@]} * ${#CONCURRENCIES[@]} ))

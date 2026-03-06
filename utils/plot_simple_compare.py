@@ -20,14 +20,14 @@ import matplotlib.pyplot as plt
 
 # ── Args ──────────────────────────────────────────────────────────────────────
 parser = argparse.ArgumentParser()
-scratch = os.environ.get("SCRATCH", os.path.expanduser("~"))
+_repo_root = Path(__file__).resolve().parent.parent
 parser.add_argument(
     "--results-dir",
-    default=f"{scratch}/disaggregated-prefill-decode-research/results/simple",
+    default=str(_repo_root / "results" / "simple"),
 )
 parser.add_argument(
     "--plots-dir",
-    default=f"{scratch}/disaggregated-prefill-decode-research/results/plots",
+    default=str(_repo_root / "results" / "plots" / "simple"),
 )
 args = parser.parse_args()
 
@@ -51,7 +51,7 @@ def load_data():
             print(f"Skipping {f.name}: {e}")
             continue
 
-        tag = data.get("metadata", {}).get("tag", f.stem)
+        tag = data.get("tag") or data.get("metadata", {}).get("tag", f.stem)
         m = re.match(r"(colocated|\d+p\d+d)_(\d+)x(\d+)_rate([\d.]+)_conc(\d+)", tag)
         if not m:
             continue
@@ -73,7 +73,7 @@ def load_data():
                 "mean_e2el_ms": data.get("mean_e2el_ms"),
                 "request_throughput": data.get("request_throughput"),
                 "output_throughput": data.get("output_throughput"),
-                "goodput": data.get("goodput"),
+                "goodput": data.get("request_goodput"),
             }
         )
 
