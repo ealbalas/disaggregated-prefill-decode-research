@@ -41,7 +41,7 @@ run_benchmark() {
 
   echo "  → Running: $tag"
 
-  vllm bench serve \
+  if vllm bench serve \
     --backend vllm \
     --port "$port" \
     --model "$MODEL" \
@@ -59,9 +59,11 @@ run_benchmark() {
     --save-detailed \
     --goodput "ttft:$SLO_TTFT" "tpot:$SLO_TPOT" "e2el:$SLO_E2EL" \
     --result-dir "$OUTDIR" \
-    --metadata "tag=$tag"
-
-  echo "  ✓ Done: $tag"
+    --metadata "tag=$tag"; then
+    echo "  ✓ Done: $tag"
+  else
+    echo "  ✗ Failed: $tag (skipping)" >&2
+  fi
 }
 
 # ── Cleanup on exit ───────────────────────────────────────────────────────────
@@ -69,12 +71,13 @@ cleanup() { stop_servers; }
 trap cleanup EXIT
 
 mkdir -p "$OUTDIR"
+echo "$OUTDIR"
 
-TOTAL_COMBOS=$(( ${#INPUT_LENS[@]} * ${#OUTPUT_LENS[@]} * ${#REQUEST_RATES[@]} * ${#CONCURRENCIES[@]} ))
-TOTAL=$(( (1 + ${#RATIOS[@]}) * TOTAL_COMBOS ))
+TOTAL_COMBOS=$((${#INPUT_LENS[@]} * ${#OUTPUT_LENS[@]} * ${#REQUEST_RATES[@]} * ${#CONCURRENCIES[@]}))
+TOTAL=$(((1 + ${#RATIOS[@]}) * TOTAL_COMBOS))
 echo "Starting prefill stress experiment: $TOTAL total runs."
 echo "  Colocated: $TOTAL_COMBOS runs"
-echo "  Disaggregated (${#RATIOS[@]} ratios × $TOTAL_COMBOS): $(( ${#RATIOS[@]} * TOTAL_COMBOS )) runs"
+echo "  Disaggregated (${#RATIOS[@]} ratios × $TOTAL_COMBOS): $((${#RATIOS[@]} * TOTAL_COMBOS)) runs"
 
 RUN=0
 
@@ -85,7 +88,7 @@ echo "Phase 1: Colocated (GPU $COLOCATED_GPU, port $COLOCATED_PORT)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 CUDA_VISIBLE_DEVICES="$COLOCATED_GPU" \
-vllm serve "$MODEL" \
+  vllm serve "$MODEL" \
   --port "$COLOCATED_PORT" &
 PIDS+=($!)
 wait_for_port "$COLOCATED_PORT" "colocated"
@@ -94,7 +97,7 @@ for input_len in "${INPUT_LENS[@]}"; do
   for output_len in "${OUTPUT_LENS[@]}"; do
     for rate in "${REQUEST_RATES[@]}"; do
       for concurrency in "${CONCURRENCIES[@]}"; do
-        RUN=$(( RUN + 1 ))
+        RUN=$((RUN + 1))
         tag="colocated_${input_len}x${output_len}_rate${rate}_conc${concurrency}"
         echo "[$RUN/$TOTAL] $tag"
         run_benchmark "$COLOCATED_PORT" "$input_len" "$output_len" "$rate" "$concurrency" "$tag"
@@ -118,8 +121,14 @@ for ratio in "${RATIOS[@]}"; do
 
   # Build proxy args
   local_prefill_hosts="" local_prefill_ports="" local_decode_hosts="" local_decode_ports=""
-  for port in "${PREFILL_PORTS[@]}"; do local_prefill_hosts+="localhost "; local_prefill_ports+="$port "; done
-  for port in "${DECODE_PORTS[@]}";  do local_decode_hosts+="localhost ";  local_decode_ports+="$port ";  done
+  for port in "${PREFILL_PORTS[@]}"; do
+    local_prefill_hosts+="localhost "
+    local_prefill_ports+="$port "
+  done
+  for port in "${DECODE_PORTS[@]}"; do
+    local_decode_hosts+="localhost "
+    local_decode_ports+="$port "
+  done
 
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -142,8 +151,8 @@ for ratio in "${RATIOS[@]}"; do
   # Prefill instances
   for i in "${!PREFILL_PORTS[@]}"; do
     CUDA_VISIBLE_DEVICES="${PREFILL_GPUS[$i]}" \
-    VLLM_NIXL_SIDE_CHANNEL_PORT="${PREFILL_SIDE_CHANNELS[$i]}" \
-    vllm serve "$MODEL" \
+      VLLM_NIXL_SIDE_CHANNEL_PORT="${PREFILL_SIDE_CHANNELS[$i]}" \
+      vllm serve "$MODEL" \
       --port "${PREFILL_PORTS[$i]}" \
       --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_both"}' &
     PIDS+=($!)
@@ -153,10 +162,11 @@ for ratio in "${RATIOS[@]}"; do
   # Decode instances
   for i in "${!DECODE_PORTS[@]}"; do
     CUDA_VISIBLE_DEVICES="${DECODE_GPUS[$i]}" \
-    VLLM_NIXL_SIDE_CHANNEL_PORT="${DECODE_SIDE_CHANNELS[$i]}" \
-    vllm serve "$MODEL" \
+      VLLM_NIXL_SIDE_CHANNEL_PORT="${DECODE_SIDE_CHANNELS[$i]}" \
+      vllm serve "$MODEL" \
       --port "${DECODE_PORTS[$i]}" \
-      --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_both"}' &
+      --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_both"}' \
+      --max-num-seqs "${DECODE_MAX_NUM_SEQS:-256}" &
     PIDS+=($!)
     wait_for_port "${DECODE_PORTS[$i]}" "decode_$i"
   done
@@ -165,7 +175,7 @@ for ratio in "${RATIOS[@]}"; do
     for output_len in "${OUTPUT_LENS[@]}"; do
       for rate in "${REQUEST_RATES[@]}"; do
         for concurrency in "${CONCURRENCIES[@]}"; do
-          RUN=$(( RUN + 1 ))
+          RUN=$((RUN + 1))
           tag="${ratio}_${input_len}x${output_len}_rate${rate}_conc${concurrency}"
           echo "[$RUN/$TOTAL] $tag"
           run_benchmark "$PROXY_PORT" "$input_len" "$output_len" "$rate" "$concurrency" "$tag"
