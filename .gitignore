@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 # OS
 .DS_Store
+/results/stats/
