@@ -20,10 +20,9 @@ import matplotlib.pyplot as plt
 
 # ── Args ──────────────────────────────────────────────────────────────────────
 parser = argparse.ArgumentParser()
-scratch = os.environ.get("SCRATCH", os.path.expanduser("~"))
-_stats = f"{scratch}/disaggregated-prefill-decode-research/results/stats"
-parser.add_argument("--results-dir", default=_stats)
-parser.add_argument("--plots-dir",   default=f"{_stats}/plots")
+_repo_root = Path(__file__).resolve().parent.parent
+parser.add_argument("--results-dir", default=str(_repo_root / "results" / "prefill_stress"))
+parser.add_argument("--plots-dir",   default=str(_repo_root / "results" / "prefill_stress" / "plots"))
 args = parser.parse_args()
 
 RESULTS_DIR = Path(args.results_dir)
