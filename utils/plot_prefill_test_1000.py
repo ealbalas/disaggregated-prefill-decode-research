@@ -30,7 +30,7 @@ PLOTS_DIR   = Path(args.plots_dir)
 PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Ratios included in this experiment (order determines legend order)
-RATIOS = ["colocated", "1p1d"]
+RATIOS = ["colocated", "1p1d", "1p2d", "2p1d"]
 COLORS = {r: cm.tab10(i / max(len(RATIOS) - 1, 1)) for i, r in enumerate(RATIOS)}
 
 
