@@ -21,12 +21,16 @@ import matplotlib.pyplot as plt
 # ── Args ──────────────────────────────────────────────────────────────────────
 parser = argparse.ArgumentParser()
 _repo_root = Path(__file__).resolve().parent.parent
-parser.add_argument("--results-dir", default=str(_repo_root / "results" / "decode_test_100"))
-parser.add_argument("--plots-dir",   default=str(_repo_root / "results" / "decode_test_100" / "plots"))
+parser.add_argument(
+    "--results-dir", default=str(_repo_root / "results" / "decode_test_1000")
+)
+parser.add_argument(
+    "--plots-dir", default=str(_repo_root / "results" / "decode_test_1000" / "plots")
+)
 args = parser.parse_args()
 
 RESULTS_DIR = Path(args.results_dir)
-PLOTS_DIR   = Path(args.plots_dir)
+PLOTS_DIR = Path(args.plots_dir)
 PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Ratios included in this experiment (order determines legend order)
@@ -54,20 +58,22 @@ def load_data():
         if ratio not in RATIOS:
             continue
 
-        records.append({
-            "tag":                tag,
-            "ratio":              ratio,
-            "input_len":          int(m.group(2)),
-            "output_len":         int(m.group(3)),
-            "rate":               float(m.group(4)),
-            "concurrency":        int(m.group(5)),
-            "mean_ttft_ms":       data.get("mean_ttft_ms"),
-            "mean_tpot_ms":       data.get("mean_tpot_ms"),
-            "mean_e2el_ms":       data.get("mean_e2el_ms"),
-            "request_throughput": data.get("request_throughput"),
-            "output_throughput":  data.get("output_throughput"),
-            "goodput":            data.get("request_goodput"),
-        })
+        records.append(
+            {
+                "tag": tag,
+                "ratio": ratio,
+                "input_len": int(m.group(2)),
+                "output_len": int(m.group(3)),
+                "rate": float(m.group(4)),
+                "concurrency": int(m.group(5)),
+                "mean_ttft_ms": data.get("mean_ttft_ms"),
+                "mean_tpot_ms": data.get("mean_tpot_ms"),
+                "mean_e2el_ms": data.get("mean_e2el_ms"),
+                "request_throughput": data.get("request_throughput"),
+                "output_throughput": data.get("output_throughput"),
+                "goodput": data.get("request_goodput"),
+            }
+        )
 
     print(f"Loaded {len(records)} result files.")
     return records
@@ -123,12 +129,16 @@ def _subplots_per_rate(records, metric_key, ylabel, title, filename):
 def plot_throughput(records):
     """Request throughput and output throughput vs output length."""
     _subplots_per_rate(
-        records, "request_throughput", "Throughput (req/s)",
+        records,
+        "request_throughput",
+        "Throughput (req/s)",
         "Request Throughput vs Output Length\nColocated vs Disaggregated",
         "decode_test_100_throughput.png",
     )
     _subplots_per_rate(
-        records, "output_throughput", "Output Throughput (tok/s)",
+        records,
+        "output_throughput",
+        "Output Throughput (tok/s)",
         "Output Throughput vs Output Length\nColocated vs Disaggregated",
         "decode_test_100_output_throughput.png",
     )
@@ -142,13 +152,14 @@ def plot_latency(records):
 
     active = _active_ratios(records)
     latency_metrics = [
-        ("mean_ttft_ms",  "Mean TTFT (ms)",        "Time-to-First-Token"),
-        ("mean_tpot_ms",  "Mean TPOT (ms)",        "Time-per-Output-Token"),
-        ("mean_e2el_ms",  "Mean E2E Latency (ms)", "End-to-End Latency"),
+        ("mean_ttft_ms", "Mean TTFT (ms)", "Time-to-First-Token"),
+        ("mean_tpot_ms", "Mean TPOT (ms)", "Time-per-Output-Token"),
+        ("mean_e2el_ms", "Mean E2E Latency (ms)", "End-to-End Latency"),
     ]
 
     fig, axes = plt.subplots(
-        len(latency_metrics), len(rates),
+        len(latency_metrics),
+        len(rates),
         figsize=(6 * len(rates), 4 * len(latency_metrics)),
         squeeze=False,
     )
@@ -190,7 +201,9 @@ def plot_goodput(records):
         print("  Skipping goodput plot: no goodput data found.")
         return
     _subplots_per_rate(
-        has_goodput, "goodput", "Goodput (req/s meeting SLOs)",
+        has_goodput,
+        "goodput",
+        "Goodput (req/s meeting SLOs)",
         "Goodput vs Output Length\nColocated vs Disaggregated",
         "decode_test_100_goodput.png",
     )
