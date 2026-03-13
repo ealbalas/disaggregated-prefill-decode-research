@@ -84,43 +84,62 @@ trap cleanup EXIT
 mkdir -p "$OUTDIR"
 echo "Results dir: $OUTDIR"
 
+# ── Defaults for phase-control vars (safe if config omits them) ───────────────
+RUN_COLOCATED="${RUN_COLOCATED:-true}"
+RUN_DISAGG="${RUN_DISAGG:-true}"
+SWEEPS=("${SWEEPS[@]:-prefill decode}")
+
+has_sweep() { local s; for s in "${SWEEPS[@]}"; do [[ "$s" == "$1" ]] && return 0; done; return 1; }
+
 PREFILL_WORKLOADS=${#PREFILL_INPUT_LENS[@]}
 DECODE_WORKLOADS=${#DECODE_OUTPUT_LENS[@]}
-TOTAL_WORKLOADS=$((PREFILL_WORKLOADS + DECODE_WORKLOADS))
 COMBOS_PER_WORKLOAD=$((${#REQUEST_RATES[@]} * ${#CONCURRENCIES[@]}))
-TOTAL=$(((1 + ${#RATIOS[@]}) * TOTAL_WORKLOADS * COMBOS_PER_WORKLOAD))
+
+# Count active phases for the total display
+ACTIVE_PHASES=0
+[[ "$RUN_COLOCATED" == true ]] && ACTIVE_PHASES=$((ACTIVE_PHASES + 1))
+[[ "$RUN_DISAGG"    == true ]] && ACTIVE_PHASES=$((ACTIVE_PHASES + ${#RATIOS[@]}))
+
+SWEEP_WORKLOADS=0
+has_sweep prefill && SWEEP_WORKLOADS=$((SWEEP_WORKLOADS + PREFILL_WORKLOADS))
+has_sweep decode  && SWEEP_WORKLOADS=$((SWEEP_WORKLOADS + DECODE_WORKLOADS))
+
+TOTAL=$((ACTIVE_PHASES * SWEEP_WORKLOADS * COMBOS_PER_WORKLOAD))
 echo "Starting max throughput characterization: $TOTAL total runs."
-echo "  Prefill sweep: ${PREFILL_INPUT_LENS[*]} input lengths (output_len=1)"
-echo "  Decode sweep:  ${DECODE_OUTPUT_LENS[*]} output lengths (input_len=64)"
+echo "  Phases:        colocated=$RUN_COLOCATED  disagg=$RUN_DISAGG"
+echo "  Sweeps:        ${SWEEPS[*]}"
+has_sweep prefill && echo "  Prefill sweep: ${PREFILL_INPUT_LENS[*]} input lengths (output_len=1)"
+has_sweep decode  && echo "  Decode sweep:  ${DECODE_OUTPUT_LENS[*]} output lengths (input_len=64)"
 
 RUN=0
 
-# ── Helper: run both sweep phases against a given port and config label ───────
-run_sweeps() {
+# ── Prefill sweep ─────────────────────────────────────────────────────────────
+run_prefill_sweep() {
     local port=$1 config_label=$2
-
-    # Prefill sweep
     for i in "${!PREFILL_INPUT_LENS[@]}"; do
         local input_len="${PREFILL_INPUT_LENS[$i]}"
         local output_len="${PREFILL_OUTPUT_LENS[$i]}"
         for rate in "${REQUEST_RATES[@]}"; do
             for concurrency in "${CONCURRENCIES[@]}"; do
                 RUN=$((RUN + 1))
-                tag="${config_label}_${input_len}x${output_len}_rate${rate}_conc${concurrency}"
+                tag="${config_label}_prefill_${input_len}x${output_len}_rate${rate}_conc${concurrency}"
                 echo "[$RUN/$TOTAL] prefill sweep — $tag"
                 run_benchmark "$port" "$input_len" "$output_len" "$rate" "$concurrency" "$tag"
             done
         done
     done
+}
 
-    # Decode sweep
+# ── Decode sweep ──────────────────────────────────────────────────────────────
+run_decode_sweep() {
+    local port=$1 config_label=$2
     for i in "${!DECODE_INPUT_LENS[@]}"; do
         local input_len="${DECODE_INPUT_LENS[$i]}"
         local output_len="${DECODE_OUTPUT_LENS[$i]}"
         for rate in "${REQUEST_RATES[@]}"; do
             for concurrency in "${CONCURRENCIES[@]}"; do
                 RUN=$((RUN + 1))
-                tag="${config_label}_${input_len}x${output_len}_rate${rate}_conc${concurrency}"
+                tag="${config_label}_decode_${input_len}x${output_len}_rate${rate}_conc${concurrency}"
                 echo "[$RUN/$TOTAL] decode sweep — $tag"
                 run_benchmark "$port" "$input_len" "$output_len" "$rate" "$concurrency" "$tag"
             done
@@ -128,27 +147,44 @@ run_sweeps() {
     done
 }
 
+# ── Run whichever sweeps are enabled ─────────────────────────────────────────
+run_sweeps() {
+    local port=$1 config_label=$2
+    has_sweep prefill && run_prefill_sweep "$port" "$config_label"
+    has_sweep decode  && run_decode_sweep  "$port" "$config_label"
+}
+
 # ══ Phase 1: Colocated ════════════════════════════════════════════════════════
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Phase 1: Colocated (GPU $COLOCATED_GPU, port $COLOCATED_PORT)"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+if [[ "$RUN_COLOCATED" == true ]]; then
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Phase 1: Colocated (GPU $COLOCATED_GPU, port $COLOCATED_PORT)"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-CUDA_VISIBLE_DEVICES="$COLOCATED_GPU" \
-    vllm serve "$MODEL" \
-    --port "$COLOCATED_PORT" \
-    --gpu-memory-utilization 0.8 \
-    --max-model-len 2048 \
-    --max-num-seqs 64 &
-PIDS+=($!)
-wait_for_port "$COLOCATED_PORT" "colocated"
+    CUDA_VISIBLE_DEVICES="$COLOCATED_GPU" \
+        vllm serve "$MODEL" \
+        --port "$COLOCATED_PORT" \
+        --gpu-memory-utilization 0.8 \
+        --max-model-len 2048 \
+        --max-num-seqs 64 &
+    PIDS+=($!)
+    wait_for_port "$COLOCATED_PORT" "colocated"
 
-run_sweeps "$COLOCATED_PORT" "colocated"
+    run_sweeps "$COLOCATED_PORT" "colocated"
 
-stop_servers
+    stop_servers
+else
+    echo ""
+    echo "Skipping Phase 1 (colocated): RUN_COLOCATED=false"
+fi
 
 # ══ Phase 2: Disaggregated ════════════════════════════════════════════════════
+if [[ "$RUN_DISAGG" != true ]]; then
+    echo ""
+    echo "Skipping Phase 2 (disaggregated): RUN_DISAGG=false"
+fi
 for ratio in "${RATIOS[@]}"; do
+    [[ "$RUN_DISAGG" == true ]] || continue
     RATIO_CONFIG="$REPO_ROOT/configs/ratios/${ratio}.env"
 
     if [[ ! -f "$RATIO_CONFIG" ]]; then
