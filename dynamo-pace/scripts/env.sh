@@ -16,7 +16,7 @@ export MODEL=$REPO_ROOT/model
 export DYNAMO_PACE_DIR=$REPO_ROOT/dynamo-pace
 export RESULTS_DIR=$REPO_ROOT/results/dynamo
 export CONTAINERS_DIR=$SCRATCH/containers
-export IMAGE=$CONTAINERS_DIR/dynamo-vllm.sif
+export IMAGE=$REPO_ROOT/dynamo-vllm.sif
 
 # ---------------------------------------------------------------------------
 # PACE bug workarounds (#1, #2, #3)

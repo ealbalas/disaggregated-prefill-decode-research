@@ -4,12 +4,7 @@
 # Balanced topology for mixed prefill/decode workloads.
 
 Frontend:
-  host: "0.0.0.0"
   port: 8000
-  num_uvicorn_workers: 2
-
-Router:
-  type: "kv"
 
 VllmWorker:
   model: "${MODEL}"
@@ -18,21 +13,9 @@ VllmWorker:
   max_model_len: 8192
   enforce_eager: true
   dtype: "bfloat16"
-  environment:
-    CC: "/usr/bin/gcc"
-    CXX: "/usr/bin/g++"
-    VLLM_USE_DEEP_GEMM: "0"
-    TORCHINDUCTOR_COMBO_KERNELS: "0"
 
 Prefill:
   num_workers: 2
 
 Decode:
   num_workers: 2
-
-KvTransfer:
-  kv_connector: "DynamoNixlConnector"
-  kv_role: "kv_both"
-  kv_buffer_device: "cuda"
-  kv_ip: "0.0.0.0"
-  kv_port: 14579

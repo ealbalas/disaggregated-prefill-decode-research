@@ -5,13 +5,7 @@
 # Use this as the latency/throughput baseline to compare against disagg configs.
 
 Frontend:
-  host: "0.0.0.0"
   port: 8000
-  num_uvicorn_workers: 1
-
-Router:
-  # Round-robin router — no KV awareness needed for aggregated serving
-  type: "round_robin"
 
 VllmWorker:
   model: "${MODEL}"
@@ -20,14 +14,7 @@ VllmWorker:
   max_model_len: 8192
   enforce_eager: true
   dtype: "bfloat16"
-  environment:
-    CC: "/usr/bin/gcc"
-    CXX: "/usr/bin/g++"
-    VLLM_USE_DEEP_GEMM: "0"
-    TORCHINDUCTOR_COMBO_KERNELS: "0"
 
-# Single aggregated worker pool — no Prefill/Decode split
+# Single aggregated worker — no Prefill/Decode split, no disaggregation
 Worker:
   num_workers: 1
-
-# No KvTransfer block — disaggregation is disabled in this config
