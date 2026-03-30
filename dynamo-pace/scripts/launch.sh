@@ -78,7 +78,7 @@ VLLM_ARGS=(
     --max-num-seqs "$MAX_NUM_SEQS"
     --max-model-len "$MAX_MODEL_LEN"
     --dtype "$DTYPE"
-    --kv-transfer-config '{"kv_connector":"DynamoNixlConnector","kv_role":"kv_both"}'
+    --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_both"}'
     --disable-log-requests
 )
 
