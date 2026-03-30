@@ -1,0 +1,38 @@
+# disagg_2p1d.yaml
+# Disaggregated serving: 2 prefill workers + 1 decode worker
+# Total GPUs required: 3 (tensor_parallel_size=1 per worker)
+# Use when prefill is the bottleneck (long-prompt workloads).
+
+Frontend:
+  host: "0.0.0.0"
+  port: 8000
+  num_uvicorn_workers: 2
+
+Router:
+  type: "kv"
+
+VllmWorker:
+  model: "${MODEL}"
+  tensor_parallel_size: 1
+  max_num_seqs: 256
+  max_model_len: 8192
+  enforce_eager: true
+  dtype: "bfloat16"
+  environment:
+    CC: "/usr/bin/gcc"
+    CXX: "/usr/bin/g++"
+    VLLM_USE_DEEP_GEMM: "0"
+    TORCHINDUCTOR_COMBO_KERNELS: "0"
+
+Prefill:
+  num_workers: 2
+
+Decode:
+  num_workers: 1
+
+KvTransfer:
+  kv_connector: "DynamoNixlConnector"
+  kv_role: "kv_both"
+  kv_buffer_device: "cuda"
+  kv_ip: "0.0.0.0"
+  kv_port: 14579

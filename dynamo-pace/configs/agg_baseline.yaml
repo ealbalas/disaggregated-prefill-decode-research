@@ -1,0 +1,33 @@
+# agg_baseline.yaml
+# Aggregated baseline: standard vLLM serving with NO disaggregation.
+# Prefill and decode run together on the same worker(s).
+# Total GPUs required: 1 (tensor_parallel_size=1)
+# Use this as the latency/throughput baseline to compare against disagg configs.
+
+Frontend:
+  host: "0.0.0.0"
+  port: 8000
+  num_uvicorn_workers: 1
+
+Router:
+  # Round-robin router — no KV awareness needed for aggregated serving
+  type: "round_robin"
+
+VllmWorker:
+  model: "${MODEL}"
+  tensor_parallel_size: 1
+  max_num_seqs: 256
+  max_model_len: 8192
+  enforce_eager: true
+  dtype: "bfloat16"
+  environment:
+    CC: "/usr/bin/gcc"
+    CXX: "/usr/bin/g++"
+    VLLM_USE_DEEP_GEMM: "0"
+    TORCHINDUCTOR_COMBO_KERNELS: "0"
+
+# Single aggregated worker pool — no Prefill/Decode split
+Worker:
+  num_workers: 1
+
+# No KvTransfer block — disaggregation is disabled in this config

@@ -1,0 +1,43 @@
+# disagg_1p1d.yaml
+# Disaggregated serving: 1 prefill worker + 1 decode worker
+# Total GPUs required: 2 (1 per worker, tensor_parallel_size=1)
+
+Frontend:
+  host: "0.0.0.0"
+  port: 8000
+  # Number of uvicorn workers for the HTTP frontend
+  num_uvicorn_workers: 1
+
+Router:
+  # KV-aware router: routes requests to prefill workers with available KV capacity
+  type: "kv"
+
+VllmWorker:
+  model: "${MODEL}"          # Resolved from env; set MODEL in env.sh
+  tensor_parallel_size: 1
+  max_num_seqs: 256
+  max_model_len: 8192
+  # enforce_eager disables CUDA graph capture — required on PACE (bug #3)
+  enforce_eager: true
+  dtype: "bfloat16"
+  # PACE-specific environment variable workarounds (bugs #1, #2, #3)
+  environment:
+    CC: "/usr/bin/gcc"
+    CXX: "/usr/bin/g++"
+    VLLM_USE_DEEP_GEMM: "0"
+    TORCHINDUCTOR_COMBO_KERNELS: "0"
+
+Prefill:
+  num_workers: 1
+
+Decode:
+  num_workers: 1
+
+# KV cache transfer settings for Dynamo disaggregated transport
+KvTransfer:
+  # Use Dynamo's built-in NIXL/UCX-based KV transfer
+  kv_connector: "DynamoNixlConnector"
+  kv_role: "kv_both"           # each config section overrides per worker type
+  kv_buffer_device: "cuda"
+  kv_ip: "0.0.0.0"
+  kv_port: 14579
