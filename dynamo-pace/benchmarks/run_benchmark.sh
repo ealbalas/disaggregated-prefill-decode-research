@@ -77,7 +77,7 @@ apptainer exec \
     --env VLLM_USE_DEEP_GEMM=0 \
     --env TORCHINDUCTOR_COMBO_KERNELS=0 \
     "$IMAGE" \
-    python3 /vllm/benchmarks/benchmark_serving.py \
+    python3 /opt/vllm/benchmarks/benchmark_serving.py \
         --backend vllm \
         --host "$HOST" \
         --port "$PORT" \
