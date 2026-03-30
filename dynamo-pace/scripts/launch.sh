@@ -64,10 +64,16 @@ MAX_MODEL_LEN=$(read_yaml "VllmWorker.max_model_len")
 DTYPE=$(read_yaml "VllmWorker.dtype")
 ENFORCE_EAGER=$(read_yaml "VllmWorker.enforce_eager")
 
+# GPU assignment: each worker gets TP_SIZE consecutive GPUs.
+# Worker 0 → GPUs 0..(TP_SIZE-1), worker 1 → GPUs TP_SIZE..(2*TP_SIZE-1), etc.
+TOTAL_WORKERS=$(( NUM_PREFILL + NUM_DECODE ))
+TOTAL_GPUS=$(( TOTAL_WORKERS * TP_SIZE ))
+
 echo "[launch] Frontend port:   $FRONTEND_PORT"
 echo "[launch] Prefill workers: $NUM_PREFILL"
 echo "[launch] Decode workers:  $NUM_DECODE"
 echo "[launch] Tensor parallel: $TP_SIZE"
+echo "[launch] GPUs required:   $TOTAL_GPUS"
 
 # ---------------------------------------------------------------------------
 # Build common vllm args
@@ -146,27 +152,35 @@ echo "[launch] Starting frontend on port $FRONTEND_PORT..."
 PIDS+=($!)
 
 # ---------------------------------------------------------------------------
-# 4. Start prefill workers
+# 4. Start prefill workers — each gets TP_SIZE GPUs
 # ---------------------------------------------------------------------------
+GPU_IDX=0
 for ((i=0; i<NUM_PREFILL; i++)); do
-    echo "[launch] Starting prefill worker $((i+1))/$NUM_PREFILL..."
+    # Build comma-separated list of GPUs for this worker
+    GPU_LIST=$(seq -s, "$GPU_IDX" $(( GPU_IDX + TP_SIZE - 1 )))
+    echo "[launch] Starting prefill worker $((i+1))/$NUM_PREFILL on GPU(s) $GPU_LIST..."
     "${APPTAINER_BASE[@]}" \
+        --env CUDA_VISIBLE_DEVICES="$GPU_LIST" \
         python3 -m dynamo.vllm \
         "${VLLM_ARGS[@]}" \
         --disaggregation-mode prefill &
     PIDS+=($!)
+    GPU_IDX=$(( GPU_IDX + TP_SIZE ))
 done
 
 # ---------------------------------------------------------------------------
-# 5. Start decode workers
+# 5. Start decode workers — each gets TP_SIZE GPUs
 # ---------------------------------------------------------------------------
 for ((i=0; i<NUM_DECODE; i++)); do
-    echo "[launch] Starting decode worker $((i+1))/$NUM_DECODE..."
+    GPU_LIST=$(seq -s, "$GPU_IDX" $(( GPU_IDX + TP_SIZE - 1 )))
+    echo "[launch] Starting decode worker $((i+1))/$NUM_DECODE on GPU(s) $GPU_LIST..."
     "${APPTAINER_BASE[@]}" \
+        --env CUDA_VISIBLE_DEVICES="$GPU_LIST" \
         python3 -m dynamo.vllm \
         "${VLLM_ARGS[@]}" \
         --disaggregation-mode decode &
     PIDS+=($!)
+    GPU_IDX=$(( GPU_IDX + TP_SIZE ))
 done
 
 echo "[launch] All processes started. Waiting..."
