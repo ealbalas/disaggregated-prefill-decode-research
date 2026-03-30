@@ -78,7 +78,7 @@ apptainer exec \
     --env TORCHINDUCTOR_COMBO_KERNELS=0 \
     "$IMAGE" \
     python3 -m vllm.entrypoints.cli.main bench serve \
-        --backend vllm \
+        --backend openai-chat \
         --host "$HOST" \
         --port "$PORT" \
         --model "$MODEL_NAME" \
