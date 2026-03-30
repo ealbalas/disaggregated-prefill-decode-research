@@ -105,8 +105,8 @@ APPTAINER_BASE=(
     --env CXX=/usr/bin/g++
     --env VLLM_USE_DEEP_GEMM=0
     --env TORCHINDUCTOR_COMBO_KERNELS=0
-    "$IMAGE"
 )
+# NOTE: $IMAGE is NOT included here so per-worker --env flags can be inserted before it
 
 # ---------------------------------------------------------------------------
 # Cleanup: kill all background PIDs on exit
@@ -126,7 +126,7 @@ trap cleanup EXIT INT TERM
 # 1. Start nats-server
 # ---------------------------------------------------------------------------
 echo "[launch] Starting nats-server..."
-"${APPTAINER_BASE[@]}" nats-server -js &
+"${APPTAINER_BASE[@]}" "$IMAGE" nats-server -js &
 PIDS+=($!)
 sleep 2
 
@@ -134,7 +134,7 @@ sleep 2
 # 2. Start etcd
 # ---------------------------------------------------------------------------
 echo "[launch] Starting etcd..."
-"${APPTAINER_BASE[@]}" \
+"${APPTAINER_BASE[@]}" "$IMAGE" \
     etcd \
     --listen-client-urls http://0.0.0.0:2379 \
     --advertise-client-urls http://0.0.0.0:2379 \
@@ -146,7 +146,7 @@ sleep 2
 # 3. Start frontend
 # ---------------------------------------------------------------------------
 echo "[launch] Starting frontend on port $FRONTEND_PORT..."
-"${APPTAINER_BASE[@]}" \
+"${APPTAINER_BASE[@]}" "$IMAGE" \
     python3 -m dynamo.frontend \
     --http-port "$FRONTEND_PORT" &
 PIDS+=($!)
@@ -161,6 +161,7 @@ for ((i=0; i<NUM_PREFILL; i++)); do
     echo "[launch] Starting prefill worker $((i+1))/$NUM_PREFILL on GPU(s) $GPU_LIST..."
     "${APPTAINER_BASE[@]}" \
         --env CUDA_VISIBLE_DEVICES="$GPU_LIST" \
+        "$IMAGE" \
         python3 -m dynamo.vllm \
         "${VLLM_ARGS[@]}" \
         --disaggregation-mode prefill &
@@ -176,6 +177,7 @@ for ((i=0; i<NUM_DECODE; i++)); do
     echo "[launch] Starting decode worker $((i+1))/$NUM_DECODE on GPU(s) $GPU_LIST..."
     "${APPTAINER_BASE[@]}" \
         --env CUDA_VISIBLE_DEVICES="$GPU_LIST" \
+        "$IMAGE" \
         python3 -m dynamo.vllm \
         "${VLLM_ARGS[@]}" \
         --disaggregation-mode decode &
