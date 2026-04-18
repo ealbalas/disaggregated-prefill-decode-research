@@ -14,12 +14,11 @@ export SCRATCH=/storage/ice1/4/5/ealbalas3
 export REPO_ROOT=$SCRATCH/disaggregated-prefill-decode-research
 export MODEL=$REPO_ROOT/model
 export DYNAMO_PACE_DIR=$REPO_ROOT/dynamo-pace
+export BURST_GPT=$SCRATCH/BurstGPT-OpenAI/example
 export RESULTS_DIR=$REPO_ROOT/results/dynamo
 export CONTAINERS_DIR=$SCRATCH/containers
 export IMAGE=$REPO_ROOT/dynamo-vllm.sif
 
-# ---------------------------------------------------------------------------
-# PACE bug workarounds (#1, #2, #3)
 # These are set in the host environment so launch.sh can forward them into
 # the Apptainer container via --env flags.
 # ---------------------------------------------------------------------------
