@@ -1,89 +1,60 @@
-#!/usr/bin/env bash
-#SBATCH --job-name=dynamo-1p1d-burst
-#SBATCH --partition=gpu-h200
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=64G
+#!/bin/bash
+#SBATCH --job-name=dynamo_burstgpt
+#SBATCH -N1
 #SBATCH --gres=gpu:h200:2
-#SBATCH --time=04:00:00
-#SBATCH --output=/storage/ice1/4/5/ealbalas3/disaggregated-prefill-decode-research/results/dynamo/slurm-%j-burst.out
-#SBATCH --error=/storage/ice1/4/5/ealbalas3/disaggregated-prefill-decode-research/results/dynamo/slurm-%j-burst.err
+#SBATCH --ntasks-per-node=4
+#SBATCH --mem=256G
+#SBATCH --time=02:00:00
+#SBATCH --output=dynamo_burstgpt_%j.out
+#SBATCH --error=dynamo_burstgpt_%j.err
 
-# job_burst_profile.sh — Launch Dynamo 1p1d, wait for it to be ready, then run
-# BurstGPT's profile_vllm_trace.py against the live server.
-#
-# Submit with:
-#   sbatch dynamo-pace/slurm/job_burst_profile.sh
-#
-# Override config at submission time:
-#   sbatch --export=ALL,DYNAMO_CONFIG=dynamo-pace/configs/disagg_1p1d.yaml \
-#          dynamo-pace/slurm/job_burst_profile.sh
+# Submit from the repo root: sbatch example/run_dynamo_burstgpt.slurm
+# $SLURM_SUBMIT_DIR is automatically set to the directory where sbatch was called.
+REPO_DIR="$SLURM_SUBMIT_DIR"
 
-set -euo pipefail
+# 1. Environment — sets $MODEL, $SCRATCH, $SIF
+RESULTS_DIR="$SCRATCH/disaggregated-prefill-decode-research/results/dynamo"
+source "$REPO_DIR/dynamo-pace/scripts/env.sh"
 
-# Bug fix #4: source env on every new SLURM node
-REPO_ROOT=/storage/ice1/4/5/ealbalas3/disaggregated-prefill-decode-research
-source "$REPO_ROOT/dynamo-pace/scripts/env.sh"
+# 2. Start Dynamo (disagg_1p1d: 1 prefill + 1 decode GPU).
+# launch.sh spawns its own background processes and exits quickly,
+# so we run it in the foreground and use the health poll below to detect readiness.
+echo "Starting Dynamo (disagg_1p1d)..."
+bash "$REPO_DIR/dynamo-pace/scripts/launch.sh" \
+    "$REPO_DIR/dynamo-pace/configs/disagg_1p1d.yaml" \
+    >"$SCRATCH/dynamo.launch.log" 2>&1
 
-DYNAMO_CONFIG="${DYNAMO_CONFIG:-$DYNAMO_PACE_DIR/configs/disagg_1p1d.yaml}"
+# 3. Poll health endpoint until the server accepts requests.
+# If /health returns non-200, check the port in disagg_1p1d.yaml and update DYNAMO_URL.
+DYNAMO_URL="http://localhost:8000/health"
+MAX_WAIT=900
+INTERVAL=5
+ELAPSED=0
 
-echo "========================================"
-echo "SLURM job: $SLURM_JOB_ID"
-echo "Node:      $(hostname)"
-echo "GPUs:      $SLURM_JOB_GPUS"
-echo "Config:    $DYNAMO_CONFIG"
-echo "========================================"
+echo "Waiting for Dynamo to become ready..."
+while true; do
+    HTTP_STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$DYNAMO_URL" || echo "000")
+    if [ "$HTTP_STATUS" -eq 200 ]; then
+        echo "Dynamo is ready."
+        break
+    fi
 
-nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader
-
-# ---------------------------------------------------------------------------
-# Launch Dynamo server in the background
-# ---------------------------------------------------------------------------
-bash "$DYNAMO_PACE_DIR/scripts/launch.sh" "$DYNAMO_CONFIG" &
-SERVER_PID=$!
-
-cleanup() {
-    echo "[burst] Shutting down server..."
-    kill "$SERVER_PID" 2>/dev/null || true
-    wait "$SERVER_PID" 2>/dev/null || true
-    echo "[burst] Done."
-}
-trap cleanup EXIT INT TERM
-
-echo "[burst] Server PID: $SERVER_PID"
-
-# ---------------------------------------------------------------------------
-# Poll /health until the server is up
-# ---------------------------------------------------------------------------
-MAX_WAIT=600
-WAITED=0
-echo "[burst] Waiting for server to become healthy..."
-while ! curl -sf 'http://localhost:8000/health' >/dev/null 2>&1; do
-    sleep 5
-    WAITED=$((WAITED + 5))
-    if [[ $WAITED -ge $MAX_WAIT ]]; then
-        echo "[burst] ERROR: server did not start within ${MAX_WAIT}s (~10 min)." >&2
+    sleep $INTERVAL
+    ELAPSED=$((ELAPSED + INTERVAL))
+    if [ $ELAPSED -ge $MAX_WAIT ]; then
+        echo "Timed out after ${MAX_WAIT}s. Check $SCRATCH/dynamo.launch.log"
         exit 1
     fi
-    echo "[burst]   still waiting... ${WAITED}s"
 done
 
-echo "[burst] /health OK"
+# 4. Run BurstGPT benchmark
+echo "Running BurstGPT benchmark..."
+bash "$REPO_DIR/example/profile_dynamo_trace.sh"
 
-# ---------------------------------------------------------------------------
-# Confirm model is loaded via /v1/models
-# ---------------------------------------------------------------------------
-echo "[burst] Checking /v1/models..."
-MODEL_NAME=$(curl -sf 'http://localhost:8000/v1/models' \
-    | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"][0]["id"])')
-echo "[burst] Model ready: $MODEL_NAME"
+# 5. Parse and print latency percentiles (p50/p90/p95/p99 TTFT and TPOT)
+echo "Parsing results..."
+python "$REPO_DIR/stats/get_latencies.py" "$SCRATCH/dynamo_1p1d_detail_log.json"
 
-# ---------------------------------------------------------------------------
-# Run BurstGPT trace profiler
-# ---------------------------------------------------------------------------
-echo "[burst] Running profile_vllm_trace.py from $BURST_GPT ..."
-cd "$BURST_GPT"
-python profile_vllm_trace.py
-
-echo "[burst] profile_vllm_trace complete."
+# 6. Stop Dynamo
+bash "$REPO_DIR/dynamo-pace/scripts/stop.sh"
+echo "Job complete."
